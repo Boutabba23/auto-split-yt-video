@@ -318,11 +318,16 @@ class AutoSplitApp(QMainWindow):
             height = f.get('height')
             if height and height <= 1080:
                 ext = f.get('ext')
-                vcodec = f.get('vcodec', 'unknown')
+                vcodec = f.get('vcodec', 'none')
+                acodec = f.get('acodec', 'none')
                 if vcodec != 'none':
                     label = f"{height}p ({ext}) - {f.get('format_note', '')}"
                     if label not in seen_qualities:
-                        self.quality_combo.addItem(label, f['format_id'])
+                        # Append +bestaudio/best to ensure audio is merged
+                        fmt_id = f['format_id']
+                        if acodec == 'none':
+                            fmt_id += "+bestaudio/best"
+                        self.quality_combo.addItem(label, fmt_id)
                         seen_qualities.add(label)
         
         self.quality_combo.addItem("Best Available (Auto)", "bestvideo[height<=1080]+bestaudio/best[height<=1080]")
