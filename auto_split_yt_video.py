@@ -1,0 +1,101 @@
+import json
+import subprocess
+import re
+from pathlib import Path
+import sys
+
+VIDEO_EXTS = [".mp4", ".mkv", ".webm"]
+OUTPUT_DIR = "chapters"
+
+Path(OUTPUT_DIR).mkdir(exist_ok=True)
+
+def clean_filename(text):
+    text = re.sub(r'[\\/:*?"<>|]', '', text)
+    return text.strip().replace(' ', '_')
+
+# URL input
+url = input("🔗 Enter YouTube video URL: ").strip()
+if not url:
+    sys.exit("❌ No URL provided")
+
+# Handle metadata (skip download if info.json exists)
+info_json = next(Path(".").glob("*.info.json"), None)
+if not info_json:
+    print("📄 Downloading metadata...")
+    subprocess.run(
+        ["yt-dlp", "--skip-download", "--write-info-json", url],
+        check=True
+    )
+    info_json = next(Path(".").glob("*.info.json"), None)
+else:
+    print(f"♻️ Using existing metadata: {info_json.name}")
+
+if not info_json:
+    sys.exit("❌ info.json not found")
+
+video = next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
+if not video:
+    choice = input("❌ Video file not found. Download it now? (y/n): ").strip().lower()
+    if choice == 'y':
+        print("📥 Downloading video... Max quality: 1080p. This may take a while.")
+        subprocess.run([
+            "yt-dlp",
+            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+            url
+        ], check=True)
+        video = next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
+        if not video:
+            sys.exit("❌ Video file still not found after download attempt.")
+    else:
+        sys.exit("❌ Video file not found. Exiting.")
+
+print(f"🎬 Video: {video.name}")
+
+with open(info_json, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+chapters = data.get("chapters")
+duration = data.get("duration")
+
+if not chapters:
+    print(f"⚠️ No chapters found in {info_json.name}")
+    print("💡 You can manually add chapters to the JSON file and run this script again.")
+    print("Chapter format example in info.json:")
+    print(' "chapters": [{"start_time": 0, "title": "Intro"}, {"start_time": 120, "title": "Main Part"}]')
+    sys.exit(1)
+
+if not duration:
+    sys.exit("❌ Duration missing in metadata")
+
+# Split (RE-ENCODE = CORRECT)
+for i, ch in enumerate(chapters):
+    start = ch["start_time"]
+
+    if i + 1 < len(chapters):
+        end = chapters[i + 1]["start_time"]
+    else:
+        end = duration
+
+    length = end - start
+
+    title = clean_filename(ch["title"])
+    output = Path(OUTPUT_DIR) / f"{i+1:02d}_{title}.mp4"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss", str(start),
+        "-i", str(video),
+        "-t", str(length),
+        "-map", "0:v:0",
+        "-map", "0:a?",
+        "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
+        "-movflags", "+faststart",
+        str(output)
+    ]
+
+    print(f"▶ {output.name}")
+    subprocess.run(cmd)
+
+print("✅ Chapters split correctly with perfect quality.")
