@@ -33,21 +33,35 @@ else:
 if not info_json:
     sys.exit("❌ info.json not found")
 
-video = next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
+# Determine expected filename
+format_id = "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+get_name_cmd = ["yt-dlp", "--get-filename", "-f", format_id, "-o", "%(title)s.%(ext)s", url]
+name_result = subprocess.run(get_name_cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+expected_video_file = name_result.stdout.strip()
+
+video = Path(expected_video_file) if expected_video_file and Path(expected_video_file).exists() else None
+
+if not video:
+    # Fallback search
+    video = next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
+
 if not video:
     choice = input("❌ Video file not found. Download it now? (y/n): ").strip().lower()
     if choice == 'y':
-        print("📥 Downloading video... Max quality: 1080p. This may take a while.")
+        print(f"📥 Downloading video... Max quality: 1080p. This may take a while.")
         subprocess.run([
             "yt-dlp",
-            "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+            "-f", format_id,
+            "-o", "%(title)s.%(ext)s",
             url
         ], check=True)
-        video = next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
+        video = Path(expected_video_file) if Path(expected_video_file).exists() else next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
         if not video:
             sys.exit("❌ Video file still not found after download attempt.")
     else:
         sys.exit("❌ Video file not found. Exiting.")
+
+video_ext = video.suffix
 
 print(f"🎬 Video: {video.name}")
 
@@ -79,7 +93,7 @@ for i, ch in enumerate(chapters):
     length = end - start
 
     title = clean_filename(ch["title"])
-    output = Path(OUTPUT_DIR) / f"{i+1:02d}_{title}.mp4"
+    output = Path(OUTPUT_DIR) / f"{i+1:02d}_{title}{video_ext}"
 
     cmd = [
         "ffmpeg",

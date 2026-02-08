@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChapterSplit - YouTube Downloader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0f0f0f;
+            color: #ffffff;
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #ff0000 0%, #ff6b6b 50%, #ff8e53 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chapter-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .chapter-card:hover {
+            transform: translateY(-2px);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .chapter-card.selected {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+        }
+
+        .quality-badge {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%);
+            transition: all 0.3s ease;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 0, 0, 0.4);
+        }
+
+        .download-btn:disabled {
+            background: #333;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.35s;
+            transform-origin: 50% 50%;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(255, 0, 0, 0.6); }
+        }
+
+        .animate-pulse-glow {
+            animation: pulse-glow 2s infinite;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+            background-size: 200% 100%;
+            animation: skeleton-loading 1.5s infinite;
+        }
+
+        @keyframes skeleton-loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .tooltip {
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .has-tooltip:hover .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
+    <!-- Background Effects -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute top-0 left-1/4 w-96 h-96 bg-red-600/10 rounded-full blur-3xl"></div>
+        <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="relative z-10 border-b border-white/10 bg-black/50 backdrop-blur-xl">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-red-600 to-red-800 rounded-xl flex items-center justify-center shadow-lg shadow-red-500/30">
+                        <i class="fas fa-play text-white text-lg"></i>
+                    </div>
+                    <h1 class="text-2xl font-bold tracking-tight">
+                        <span class="gradient-text">ChapterSplit</span>
+                    </h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button class="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                        <i class="fas fa-moon text-gray-400"></i>
+                    </button>
+                    <button class="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                        <i class="fas fa-cog text-gray-400"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- URL Input Section -->
+        <section class="mb-8">
+            <div class="glass-panel rounded-2xl p-6 md:p-8">
+                <label class="block text-sm font-medium text-gray-400 mb-3">YouTube Video URL</label>
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <div class="relative flex-1">
+                        <input 
+                            type="text" 
+                            id="videoUrl" 
+                            placeholder="https://www.youtube.com/watch?v=..." 
+                            class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 pl-11 text-white placeholder-gray-500 focus:outline-none focus:border-red-500/50 focus:ring-2 focus:ring-red-500/20 transition-all"
+                        >
+                        <i class="fab fa-youtube absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                    </div>
+                    <button 
+                        onclick="analyzeVideo()" 
+                        id="analyzeBtn"
+                        class="download-btn px-8 py-3 rounded-xl font-semibold text-white flex items-center justify-center space-x-2 min-w-[140px]"
+                    >
+                        <i class="fas fa-search"></i>
+                        <span>Analyze</span>
+                    </button>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">Supports: youtube.com, youtu.be, youtube.com/shorts</p>
+            </div>
+        </section>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="hidden mb-8">
+            <div class="glass-panel rounded-2xl p-8 text-center">
+                <div class="relative w-20 h-20 mx-auto mb-4">
+                    <svg class="progress-ring w-20 h-20" viewBox="0 0 80 80">
+                        <circle class="text-gray-800" stroke-width="4" stroke="currentColor" fill="transparent" r="36" cx="40" cy="40"/>
+                        <circle id="progressCircle" class="progress-ring-circle text-red-500" stroke-width="4" stroke-linecap="round" stroke="currentColor" fill="transparent" r="36" cx="40" cy="40" stroke-dasharray="226.19" stroke-dashoffset="226.19"/>
+                    </svg>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <i class="fas fa-spinner fa-spin text-red-500 text-xl"></i>
+                    </div>
+                </div>
+                <h3 class="text-lg font-semibold mb-1">Analyzing Video...</h3>
+                <p class="text-gray-400 text-sm" id="loadingText">Fetching video metadata</p>
+            </div>
+        </div>
+
+        <!-- Video Info & Chapters -->
+        <div id="videoContent" class="hidden space-y-6">
+            
+            <!-- Video Header -->
+            <div class="glass-panel rounded-2xl p-6 flex flex-col md:flex-row gap-6">
+                <div class="relative w-full md:w-64 aspect-video rounded-xl overflow-hidden bg-black flex-shrink-0 group cursor-pointer">
+                    <img id="thumbnail" src="" alt="Thumbnail" class="w-full h-full object-cover transition-transform group-hover:scale-105">
+                    <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <i class="fas fa-play-circle text-4xl text-white/90"></i>
+                    </div>
+                    <div id="videoDuration" class="absolute bottom-2 right-2 bg-black/80 px-2 py-1 rounded text-xs font-medium"></div>
+                </div>
+                
+                <div class="flex-1 min-w-0">
+                    <h2 id="videoTitle" class="text-xl md:text-2xl font-bold mb-2 line-clamp-2"></h2>
+                    <div class="flex items-center space-x-4 text-sm text-gray-400 mb-4">
+                        <span id="channelName" class="flex items-center space-x-1">
+                            <i class="fas fa-user-circle"></i>
+                            <span></span>
+                        </span>
+                        <span id="viewCount" class="flex items-center space-x-1">
+                            <i class="fas fa-eye"></i>
+                            <span></span>
+                        </span>
+                        <span id="uploadDate" class="flex items-center space-x-1">
+                            <i class="fas fa-calendar"></i>
+                            <span></span>
+                        </span>
+                    </div>
+                    
+                    <!-- Quality Selection -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Download Quality</label>
+                        <div class="flex flex-wrap gap-2" id="qualityOptions">
+                            <!-- Generated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Format Selection -->
+                    <div class="flex items-center space-x-4">
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="format" value="mp4" checked class="w-4 h-4 text-red-600 bg-transparent border-gray-600 focus:ring-red-500">
+                            <span class="text-sm">MP4 (Video)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="format" value="mp3" class="w-4 h-4 text-red-600 bg-transparent border-gray-600 focus:ring-red-500">
+                            <span class="text-sm">MP3 (Audio)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chapters Section -->
+            <div class="glass-panel rounded-2xl p-6">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+                    <div>
+                        <h3 class="text-lg font-bold flex items-center space-x-2">
+                            <i class="fas fa-list-ul text-red-500"></i>
+                            <span>Chapters</span>
+                            <span id="chapterCount" class="bg-white/10 px-2 py-0.5 rounded-full text-xs">0</span>
+                        </h3>
+                        <p class="text-sm text-gray-400 mt-1">Select specific chapters to download</p>
+                    </div>
+                    
+                    <div class="flex items-center space-x-3">
+                        <button onclick="selectAllChapters()" class="px-4 py-2 text-sm bg-white/5 hover:bg-white/10 rounded-lg transition-colors border border-white/10">
+                            Select All
+                        </button>
+                        <button onclick="deselectAllChapters()" class="px-4 py-2 text-sm bg-white/5 hover:bg-white/10 rounded-lg transition-colors border border-white/10">
+                            Deselect All
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Chapters List -->
+                <div id="chaptersList" class="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                    <!-- Generated dynamically -->
+                </div>
+
+                <!-- Bulk Actions -->
+                <div class="mt-6 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div class="text-sm text-gray-400">
+                        <span id="selectedCount">0</span> chapters selected • 
+                        <span id="totalDuration">00:00</span> total duration
+                    </div>
+                    <button 
+                        onclick="startDownload()" 
+                        id="downloadBtn"
+                        class="download-btn w-full sm:w-auto px-8 py-3 rounded-xl font-semibold text-white flex items-center justify-center space-x-2 disabled:opacity-50"
+                        disabled
+                    >
+                        <i class="fas fa-download"></i>
+                        <span>Download Selected</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Progress -->
+        <div id="downloadProgress" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div class="glass-panel rounded-2xl p-8 max-w-md w-full">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse-glow">
+                        <i class="fas fa-cloud-download-alt text-2xl text-red-500"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-1">Downloading...</h3>
+                    <p class="text-gray-400 text-sm" id="downloadStatus">Preparing download</p>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="flex justify-between text-sm mb-1">
+                        <span class="text-gray-400" id="currentChapter">Chapter 1/5</span>
+                        <span class="text-white font-medium" id="downloadPercent">0%</span>
+                    </div>
+                    <div class="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div id="progressBar" class="h-full bg-gradient-to-r from-red-600 to-red-400 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-500">
+                        <span id="downloadSpeed">0 MB/s</span>
+                        <span id="timeRemaining">Calculating...</span>
+                    </div>
+                </div>
+
+                <button onclick="cancelDownload()" class="mt-6 w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium transition-colors">
+                    Cancel Download
+                </button>
+            </div>
+        </div>
+
+        <!-- History Section -->
+        <section class="mt-12">
+            <h3 class="text-lg font-bold mb-4 flex items-center space-x-2">
+                <i class="fas fa-history text-gray-400"></i>
+                <span>Recent Downloads</span>
+            </h3>
+            <div id="downloadHistory" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="glass-panel rounded-xl p-6 text-center text-gray-500 text-sm">
+                    No recent downloads
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // State Management
+        let currentVideo = null;
+        let selectedChapters = new Set();
+        let downloadQueue = [];
+        let isDownloading = false;
+
+        // Mock Data for Demo
+        const mockChapters = [
+            { id: 1, title: "Introduction & Overview", start: "00:00", end: "02:30", duration: 150, thumbnail: "https://i.ytimg.com/vi/1/1.jpg" },
+            { id: 2, title: "Setting Up the Environment", start: "02:30", end: "08:45", duration: 375, thumbnail: "https://i.ytimg.com/vi/1/2.jpg" },
+            { id: 3, title: "Core Concepts Explained", start: "08:45", end: "15:20", duration: 395, thumbnail: "https://i.ytimg.com/vi/1/3.jpg" },
+            { id: 4, title: "Practical Implementation", start: "15:20", end: "22:10", duration: 410, thumbnail: "https://i.ytimg.com/vi/1/4.jpg" },
+            { id: 5, title: "Advanced Techniques", start: "22:10", end: "28:30", duration: 380, thumbnail: "https://i.ytimg.com/vi/1/5.jpg" },
+            { id: 6, title: "Optimization Tips", start: "28:30", end: "33:15", duration: 285, thumbnail: "https://i.ytimg.com/vi/1/6.jpg" },
+            { id: 7, title: "Common Pitfalls", start: "33:15", end: "38:40", duration: 325, thumbnail: "https://i.ytimg.com/vi/1/7.jpg" },
+            { id: 8, title: "Q&A Session", start: "38:40", end: "42:00", duration: 200, thumbnail: "https://i.ytimg.com/vi/1/8.jpg" }
+        ];
+
+        const qualities = [
+            { label: '4K', value: '2160p', size: '1.2 GB', available: true },
+            { label: '1440p', value: '1440p', size: '850 MB', available: true },
+            { label: '1080p', value: '1080p', size: '520 MB', available: true },
+            { label: '720p', value: '720p', size: '280 MB', available: true },
+            { label: '480p', value: '480p', size: '180 MB', available: true },
+            { label: '360p', value: '360p', size: '120 MB', available: true }
+        ];
+
+        function analyzeVideo() {
+            const url = document.getElementById('videoUrl').value.trim();
+            if (!url) {
+                showNotification('Please enter a YouTube URL', 'error');
+                return;
+            }
+
+            if (!isValidYouTubeUrl(url)) {
+                showNotification('Invalid YouTube URL', 'error');
+                return;
+            }
+
+            // Show loading
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('videoContent').classList.add('hidden');
+            
+            // Simulate analysis
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                updateProgress(progress);
+                
+                if (progress === 30) document.getElementById('loadingText').textContent = 'Fetching video metadata...';
+                if (progress === 60) document.getElementById('loadingText').textContent = 'Extracting chapters...';
+                if (progress === 80) document.getElementById('loadingText').textContent = 'Loading available formats...';
+                
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        loadVideoData(url);
+                    }, 500);
+                }
+            }, 200);
+        }
+
+        function isValidYouTubeUrl(url) {
+            const pattern = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+/;
+            return pattern.test(url);
+        }
+
+        function updateProgress(percent) {
+            const circle = document.getElementById('progressCircle');
+            const radius = circle.r.baseVal.value;
+            const circumference = radius * 2 * Math.PI;
+            const offset = circumference - (percent / 100) * circumference;
+            circle.style.strokeDashoffset = offset;
+        }
+
+        function loadVideoData(url) {
+            // Mock video data
+            currentVideo = {
+                id: 'demo123',
+                title: 'Complete Web Development Course 2024 - From Zero to Hero',
+                channel: 'CodeMaster Academy',
+                views: '1.2M',
+                date: '2 weeks ago',
+                duration: '42:00',
+                thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
+                chapters: mockChapters
+            };
+
+            // Update UI
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('videoContent').classList.remove('hidden');
+            
+            document.getElementById('videoTitle').textContent = currentVideo.title;
+            document.getElementById('channelName').querySelector('span').textContent = currentVideo.channel;
+            document.getElementById('viewCount').querySelector('span').textContent = currentVideo.views;
+            document.getElementById('uploadDate').querySelector('span').textContent = currentVideo.date;
+            document.getElementById('videoDuration').textContent = currentVideo.duration;
+            document.getElementById('thumbnail').src = currentVideo.thumbnail;
+            document.getElementById('chapterCount').textContent = currentVideo.chapters.length;
+
+            // Render qualities
+            renderQualities();
+            
+            // Render chapters
+            renderChapters();
+            
+            // Scroll to content
+            document.getElementById('videoContent').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function renderQualities() {
+            const container = document.getElementById('qualityOptions');
+            container.innerHTML = qualities.map((q, idx) => `
+                <button 
+                    onclick="selectQuality(${idx})"
+                    class="quality-badge px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:bg-white/10 ${idx === 2 ? 'ring-2 ring-red-500 bg-red-500/20' : ''}"
+                    id="quality-${idx}"
+                >
+                    <div class="flex items-center space-x-1">
+                        <span>${q.label}</span>
+                        <span class="text-gray-500">•</span>
+                        <span class="text-gray-400">${q.size}</span>
+                    </div>
+                </button>
+            `).join('');
+        }
+
+        function selectQuality(index) {
+            qualities.forEach((_, idx) => {
+                const btn = document.getElementById(`quality-${idx}`);
+                if (idx === index) {
+                    btn.classList.add('ring-2', 'ring-red-500', 'bg-red-500/20');
+                } else {
+                    btn.classList.remove('ring-2', 'ring-red-500', 'bg-red-500/20');
+                }
+            });
+        }
+
+        function renderChapters() {
+            const container = document.getElementById('chaptersList');
+            container.innerHTML = currentVideo.chapters.map((chapter, idx) => `
+                <div 
+                    class="chapter-card relative flex items-center p-4 rounded-xl border border-white/5 cursor-pointer group"
+                    onclick="toggleChapter(${chapter.id})"
+                    id="chapter-${chapter.id}"
+                >
+                    <div class="flex-shrink-0 mr-4">
+                        <div class="w-5 h-5 rounded border-2 border-white/30 flex items-center justify-center transition-colors checkbox-indicator">
+                            <i class="fas fa-check text-xs text-white opacity-0 transition-opacity"></i>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-shrink-0 w-24 aspect-video rounded-lg bg-gray-800 mr-4 overflow-hidden relative">
+                        <img src="${chapter.thumbnail}" class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity">
+                        <div class="absolute bottom-1 right-1 bg-black/80 px-1 rounded text-[10px]">${formatDuration(chapter.duration)}</div>
+                    </div>
+                    
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <span class="text-xs font-mono text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded">${chapter.start}</span>
+                            <h4 class="font-medium text-sm truncate">${chapter.title}</h4>
+                        </div>
+                        <div class="flex items-center space-x-3 text-xs text-gray-500">
+                            <span>Chapter ${idx + 1}</span>
+                            <span>•</span>
+                            <span>${formatDuration(chapter.duration)}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button class="p-2 hover:bg-white/10 rounded-lg" onclick="event.stopPropagation(); previewChapter(${chapter.id})">
+                            <i class="fas fa-play text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleChapter(id) {
+            const element = document.getElementById(`chapter-${id}`);
+            const checkbox = element.querySelector('.checkbox-indicator');
+            const checkIcon = checkbox.querySelector('i');
+            
+            if (selectedChapters.has(id)) {
+                selectedChapters.delete(id);
+                element.classList.remove('selected');
+                checkbox.classList.remove('bg-red-500', 'border-red-500');
+                checkbox.classList.add('border-white/30');
+                checkIcon.classList.add('opacity-0');
+            } else {
+                selectedChapters.add(id);
+                element.classList.add('selected');
+                checkbox.classList.remove('border-white/30');
+                checkbox.classList.add('bg-red-500', 'border-red-500');
+                checkIcon.classList.remove('opacity-0');
+            }
+            
+            updateSelectionInfo();
+        }
+
+        function selectAllChapters() {
+            currentVideo.chapters.forEach(ch => {
+                if (!selectedChapters.has(ch.id)) {
+                    toggleChapter(ch.id);
+                }
+            });
+        }
+
+        function deselectAllChapters() {
+            selectedChapters.forEach(id => {
+                const element = document.getElementById(`chapter-${id}`);
+                if (element) {
+                    element.classList.remove('selected');
+                    const checkbox = element.querySelector('.checkbox-indicator');
+                    const checkIcon = checkbox.querySelector('i');
+                    checkbox.classList.remove('bg-red-500', 'border-red-500');
+                    checkbox.classList.add('border-white/30');
+                    checkIcon.classList.add('opacity-0');
+                }
+            });
+            selectedChapters.clear();
+            updateSelectionInfo();
+        }
+
+        function updateSelectionInfo() {
+            const count = selectedChapters.size;
+            document.getElementById('selectedCount').textContent = count;
+            document.getElementById('downloadBtn').disabled = count === 0;
+            
+            let totalSeconds = 0;
+            selectedChapters.forEach(id => {
+                const chapter = currentVideo.chapters.find(c => c.id === id);
+                if (chapter) totalSeconds += chapter.duration;
+            });
+            document.getElementById('totalDuration').textContent = formatDuration(totalSeconds);
+        }
+
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function previewChapter(id) {
+            showNotification(`Previewing chapter ${id}...`, 'info');
+        }
+
+        function startDownload() {
+            if (selectedChapters.size === 0) return;
+            
+            const format = document.querySelector('input[name="format"]:checked').value;
+            const selectedQuality = qualities.find(q => document.getElementById(`quality-${qualities.indexOf(q)}`).classList.contains('ring-2'));
+            
+            downloadQueue = Array.from(selectedChapters);
+            isDownloading = true;
+            
+            document.getElementById('downloadProgress').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+            
+            processDownloadQueue();
+        }
+
+        function processDownloadQueue() {
+            if (downloadQueue.length === 0) {
+                completeDownload();
+                return;
+            }
+            
+            const currentId = downloadQueue[0];
+            const chapter = currentVideo.chapters.find(c => c.id === currentId);
+            const total = Array.from(selectedChapters).length;
+            const current = total - downloadQueue.length + 1;
+            
+            document.getElementById('currentChapter').textContent = `Chapter ${current}/${total}: ${chapter.title}`;
+            
+            // Simulate download progress
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 100) progress = 100;
+                
+                updateDownloadProgress(progress);
+                
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        downloadQueue.shift();
+                        processDownloadQueue();
+                    }, 500);
+                }
+            }, 300);
+        }
+
+        function updateDownloadProgress(percent) {
+            document.getElementById('progressBar').style.width = `${percent}%`;
+            document.getElementById('downloadPercent').textContent = `${Math.round(percent)}%`;
+            
+            // Simulate speed
+            const speed = (Math.random() * 5 + 2).toFixed(1);
+            document.getElementById('downloadSpeed').textContent = `${speed} MB/s`;
+            
+            // Calculate time remaining
+            const remaining = Math.ceil((100 - percent) / 10);
+            document.getElementById('timeRemaining').textContent = `${remaining}s remaining`;
+        }
+
+        function completeDownload() {
+            document.getElementById('downloadStatus').textContent = 'Download Complete!';
+            document.getElementById('progressBar').classList.remove('from-red-600', 'to-red-400');
+            document.getElementById('progressBar').classList.add('from-green-600', 'to-green-400');
+            
+            setTimeout(() => {
+                document.getElementById('downloadProgress').classList.add('hidden');
+                document.body.style.overflow = '';
+                showNotification('All chapters downloaded successfully!', 'success');
+                addToHistory();
+                
+                // Reset
+                document.getElementById('progressBar').classList.add('from-red-600', 'to-red-400');
+                document.getElementById('progressBar').classList.remove('from-green-600', 'to-green-400');
+                isDownloading = false;
+            }, 1500);
+        }
+
+        function cancelDownload() {
+            isDownloading = false;
+            downloadQueue = [];
+            document.getElementById('downloadProgress').classList.add('hidden');
+            document.body.style.overflow = '';
+            showNotification('Download cancelled', 'warning');
+        }
+
+        function addToHistory() {
+            const history = document.getElementById('downloadHistory');
+            const selectedChaptersList = Array.from(selectedChapters).map(id => 
+                currentVideo.chapters.find(c => c.id === id)
+            );
+            
+            const historyItem = document.createElement('div');
+            historyItem.className = 'glass-panel rounded-xl p-4 flex items-center space-x-4 animate-fade-in';
+            historyItem.innerHTML = `
+                <div class="w-16 h-12 rounded-lg bg-gray-800 flex-shrink-0 overflow-hidden">
+                    <img src="${currentVideo.thumbnail}" class="w-full h-full object-cover">
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h4 class="font-medium text-sm truncate">${currentVideo.title}</h4>
+                    <p class="text-xs text-gray-400">${selectedChaptersList.length} chapters • Just now</p>
+                </div>
+                <button class="p-2 hover:bg-white/10 rounded-lg text-green-400">
+                    <i class="fas fa-check-circle"></i>
+                </button>
+            `;
+            
+            // Remove "no downloads" message if exists
+            if (history.children[0]?.classList.contains('text-center')) {
+                history.innerHTML = '';
+            }
+            
+            history.insertBefore(historyItem, history.firstChild);
+        }
+
+        function showNotification(message, type = 'info') {
+            // Simple notification implementation
+            const notification = document.createElement('div');
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                warning: 'bg-yellow-500',
+                info: 'bg-blue-500'
+            };
+            
+            notification.className = `fixed bottom-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-xl shadow-2xl z-50 transform translate-y-0 transition-all`;
+            notification.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <i class="fas ${type === 'success' ? 'fa-check' : type === 'error' ? 'fa-exclamation' : 'fa-info'}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateY(20px)';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+
+        // Enter key support
+        document.getElementById('videoUrl').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') analyzeVideo();
+        });
+    </script>
+</body>
+</html>

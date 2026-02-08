@@ -3,117 +3,293 @@ import json
 import subprocess
 import re
 import os
+import urllib.request
 from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem,
-    QHeaderView, QComboBox, QProgressBar, QTextEdit, QFrame, QAbstractItemView
+    QHeaderView, QComboBox, QProgressBar, QTextEdit, QFrame, QAbstractItemView,
+    QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, Slot
-from PySide6.QtGui import QFont, QIcon, QColor, QPalette
+from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
 
 # --- Configuration ---
 VIDEO_EXTS = [".mp4", ".mkv", ".webm"]
 OUTPUT_DIR = "chapters"
 
-# --- Styling (QSS) ---
+# --- Styling (QSS) - YouTube ChapterSplit Theme ---
 STYLE_SHEET = """
+/* ===== Base Styles ===== */
 QMainWindow {
     background-color: #0f0f0f;
 }
 
 QWidget {
-    color: #e0e0e0;
-    font-family: 'Segoe UI', Roboto, sans-serif;
+    color: #ffffff;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-size: 13px;
 }
 
-QFrame#MainContainer {
-    background-color: #1a1a1a;
-    border-radius: 15px;
-    border: 1px solid #333;
+/* ===== Glass Panels ===== */
+QFrame#GlassPanel {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+QFrame#HeaderPanel {
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 0px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ===== Inputs ===== */
 QLineEdit {
-    background-color: #262626;
-    border: 2px solid #333;
-    border-radius: 8px;
-    padding: 8px 12px;
+    background-color: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 12px 16px;
     font-size: 14px;
-    color: #fff;
-    selection-background-color: #3d5afe;
+    color: #ffffff;
+    selection-background-color: #ff0000;
 }
 
 QLineEdit:focus {
-    border: 2px solid #3d5afe;
+    border: 1px solid rgba(255, 0, 0, 0.5);
 }
 
+QLineEdit::placeholder {
+    color: #6b7280;
+}
+
+QLineEdit:disabled {
+    background-color: rgba(0, 0, 0, 0.2);
+    color: #4b5563;
+}
+
+/* ===== Primary Button (Red Gradient) ===== */
 QPushButton {
-    background-color: #3d5afe;
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #ff0000, stop:1 #cc0000);
     color: white;
     border: none;
-    border-radius: 8px;
-    padding: 10px 20px;
-    font-weight: bold;
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-weight: 600;
     font-size: 14px;
 }
 
 QPushButton:hover {
-    background-color: #536dfe;
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #ff3333, stop:1 #dd0000);
 }
 
 QPushButton:pressed {
-    background-color: #304ffe;
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #cc0000, stop:1 #aa0000);
 }
 
+QPushButton:disabled {
+    background-color: #333333;
+    color: #666666;
+}
+
+/* ===== Secondary Buttons ===== */
 QPushButton#SecondaryBtn {
-    background-color: #333;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #9ca3af;
+    padding: 8px 16px;
+    font-weight: 500;
 }
 
 QPushButton#SecondaryBtn:hover {
-    background-color: #444;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
 }
 
+/* ===== Download/Start Button ===== */
+QPushButton#DownloadBtn {
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #ff0000, stop:1 #cc0000);
+    font-size: 15px;
+    font-weight: bold;
+    padding: 14px 32px;
+}
+
+QPushButton#DownloadBtn:hover {
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #ff3333, stop:1 #dd0000);
+}
+
+QPushButton#DownloadBtn:disabled {
+    background-color: #333333;
+    color: #555555;
+}
+
+/* ===== ComboBox ===== */
 QComboBox {
-    background-color: #262626;
-    border: 1px solid #333;
-    border-radius: 5px;
-    padding: 5px 10px;
+    background-color: rgba(26, 26, 26, 1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #ffffff;
+    min-width: 200px;
 }
 
-QTableWidget {
+QComboBox:hover {
+    border-color: rgba(255, 0, 0, 0.5);
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 30px;
+}
+
+QComboBox QAbstractItemView {
     background-color: #1a1a1a;
-    gridline-color: #333;
-    border: 1px solid #333;
-    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    selection-background-color: #ff0000;
+    color: #ffffff;
+}
+
+/* ===== Table (Chapters) ===== */
+QTableWidget {
+    background-color: transparent;
+    gridline-color: rgba(255, 255, 255, 0.05);
+    border: none;
+    border-radius: 12px;
     font-size: 13px;
+    alternate-background-color: rgba(255, 255, 255, 0.02);
+    outline: none; /* Removes the "line through" / dashed focus rect */
+}
+
+QTableWidget::item {
+    padding: 0px 12px; /* Horizontal padding only */
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+QTableWidget::item:selected {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: #ffffff;
+}
+
+QTableWidget::item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Style the editor (simple input look) */
+QTableWidget QLineEdit, 
+QAbstractItemView QLineEdit {
+    background-color: #1a1a1a;
+    background: #1a1a1a;
+    border: 1px solid #ff0000;
+    border-radius: 4px;
+    padding: 0px 8px;
+    margin: 4px;
+    color: #ffffff;
+    selection-background-color: #ff0000;
+    selection-color: #ffffff;
+    font-size: 13px;
+    min-height: 28px;
 }
 
 QHeaderView::section {
-    background-color: #262626;
-    color: #aaa;
-    padding: 5px;
+    background-color: rgba(255, 255, 255, 0.03);
+    color: #9ca3af;
+    padding: 12px;
     border: none;
-    font-weight: bold;
+    font-weight: 500;
+    font-size: 12px;
 }
 
+/* ===== Progress Bar ===== */
 QProgressBar {
-    background-color: #262626;
-    border-radius: 5px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
     text-align: center;
+    font-weight: bold;
+    color: #ffffff;
+    min-height: 8px;
+    max-height: 8px;
 }
 
 QProgressBar::chunk {
-    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #3d5afe, stop:1 #00e5ff);
-    border-radius: 5px;
+    background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 #dc2626, stop:1 #f87171);
+    border-radius: 4px;
 }
 
+/* ===== Log Area ===== */
 QTextEdit#LogArea {
-    background-color: #0f0f0f;
-    border: 1px solid #333;
-    border-radius: 8px;
-    font-family: 'Consolas', monospace;
+    background-color: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 11px;
+    color: #6b7280;
+    padding: 12px;
+}
+
+/* ===== Labels ===== */
+QLabel#TitleLabel {
+    font-size: 24px;
+    font-weight: bold;
+    color: #ff0000;
+}
+
+QLabel#GradientTitle {
+    font-size: 24px;
+    font-weight: bold;
+    color: #ff6b6b;
+}
+
+QLabel#SubtitleLabel {
     font-size: 12px;
-    color: #888;
+    color: #9ca3af;
+    font-weight: 400;
+}
+
+QLabel#SectionLabel {
+    font-size: 12px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+QLabel#VideoTitleLabel {
+    font-size: 18px;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+QLabel#VideoInfoLabel {
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+QLabel#ChapterCountBadge {
+    font-size: 11px;
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+/* ===== Scrollbar ===== */
+QScrollBar:vertical {
+    background-color: rgba(255, 255, 255, 0.05);
+    width: 8px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
 }
 """
 
@@ -131,7 +307,7 @@ class MetadataWorker(QThread):
         try:
             # Fetch formats and metadata
             cmd = ["yt-dlp", "--dump-json", "--skip-download", self.url]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
             data = json.loads(result.stdout)
             self.finished.emit(data)
         except Exception as e:
@@ -155,17 +331,45 @@ class ProcessWorker(QThread):
             
             # 1. Download video if needed
             video_file = self.video_filename
-            if not video_file or not Path(video_file).exists():
-                self.progress.emit(10, "📥 Downloading video...")
-                cmd = ["yt-dlp", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
-                subprocess.run(cmd, check=True)
-                
-                # Find the downloaded file
-                video_file = next((f for f in Path(".").iterdir() if f.suffix.lower() in VIDEO_EXTS), None)
+            
+            # Helper to get the actual filename yt-dlp would/did use
+            get_name_cmd = ["yt-dlp", "--get-filename", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
+            name_result = subprocess.run(get_name_cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
+            expected_video_file = (name_result.stdout or "").strip()
 
-            if not video_file:
-                self.error.emit("Video file not found after download.")
+            if not video_file or not Path(video_file).exists():
+                if expected_video_file and Path(expected_video_file).exists():
+                     video_file = expected_video_file
+                else:
+                    self.progress.emit(10, "📥 Downloading video...")
+                    cmd = ["yt-dlp", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
+                    subprocess.run(cmd, check=True)
+                    
+                    # Fuzzy match after download or if expected name failed
+                    if not expected_video_file:
+                         # Try to get it again after download
+                         name_result = subprocess.run(get_name_cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
+                         expected_video_file = (name_result.stdout or "").strip()
+                    
+                    if expected_video_file and Path(expected_video_file).exists():
+                        video_file = expected_video_file
+                    else:
+                        # Strategy 2: Fuzzy match by cleaning predicted title
+                        # Remove problematic characters and spaces for a "base" match
+                        base_name = re.sub(r'[^a-zA-Z0-9]', '', expected_video_file.split('.')[0] if expected_video_file else "")
+                        for f in Path(".").iterdir():
+                            if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
+                                clean_f = re.sub(r'[^a-zA-Z0-9]', '', f.stem)
+                                if base_name and (base_name in clean_f or clean_f in base_name):
+                                    video_file = str(f)
+                                    break
+
+            if not video_file or not Path(video_file).exists():
+                self.error.emit(f"Video file not found: {expected_video_file or 'Unknown'}")
                 return
+
+            video_path = Path(video_file)
+            video_ext = video_path.suffix
 
             # 2. Split into chapters
             total = len(self.chapters)
@@ -174,13 +378,13 @@ class ProcessWorker(QThread):
                 start = ch['start_time']
                 length = ch['length']
                 
-                clean_title = re.sub(r'[\\/:*?"<>|]', '', title).strip().replace(' ', '_')
-                output = Path(OUTPUT_DIR) / f"{i+1:02d}_{clean_title}.mp4"
+                clean_title = re.sub(r'[\\/:*?"<>|]', '', title or "Chapter").strip().replace(' ', '_')
+                output = Path(OUTPUT_DIR) / f"{i+1:02d}_{clean_title}{video_ext}"
                 
                 self.progress.emit(int(20 + (i/total)*80), f"✂️ Splitting: {title}")
                 
                 cmd = [
-                    "ffmpeg", "-y", "-ss", str(start), "-i", str(video_file),
+                    "ffmpeg", "-y", "-ss", str(start), "-i", str(video_path),
                     "-t", str(length), "-map", "0:v:0", "-map", "0:a?",
                     "-c", "copy", "-avoid_negative_ts", "make_zero",
                     "-movflags", "+faststart", str(output)
@@ -206,98 +410,240 @@ class AutoSplitApp(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(24, 0, 24, 24)
+        main_layout.setSpacing(16)
 
-        # Header Container
-        header_container = QFrame()
-        header_container.setObjectName("MainContainer")
-        header_layout = QVBoxLayout(header_container)
-        
-        title_label = QLabel("YouTube Video Auto-Splitter")
-        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #3d5afe;")
+        # ===== Header Bar =====
+        header_bar = QFrame()
+        header_bar.setObjectName("HeaderPanel")
+        header_bar.setFixedHeight(56)
+        header_layout = QHBoxLayout(header_bar)
+        header_layout.setContentsMargins(8, 0, 8, 0)
+
+        title_label = QLabel("ChapterSplit")
+        title_label.setObjectName("TitleLabel")
         header_layout.addWidget(title_label)
+        header_layout.addStretch()
 
-        # URL Input Area
-        url_layout = QHBoxLayout()
+        main_layout.addWidget(header_bar)
+
+        # ===== Two Column Layout =====
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(20)
+
+        # ========== LEFT COLUMN ==========
+        left_column = QVBoxLayout()
+        left_column.setSpacing(16)
+
+        # --- Card 1: URL Input ---
+        url_panel = QFrame()
+        url_panel.setObjectName("GlassPanel")
+        url_layout = QVBoxLayout(url_panel)
+        url_layout.setContentsMargins(20, 20, 20, 20)
+        url_layout.setSpacing(12)
+
+        url_label = QLabel("YouTube Video URL")
+        url_label.setObjectName("SectionLabel")
+        url_layout.addWidget(url_label)
+
+        url_row = QHBoxLayout()
+        url_row.setSpacing(10)
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Paste YouTube URL here...")
-        self.fetch_btn = QPushButton("Fetch Metadata")
+        self.url_input.setPlaceholderText("https://www.youtube.com/watch?v=...")
+        self.url_input.setMinimumHeight(44)
+        self.fetch_btn = QPushButton("🔍  Analyze")
+        self.fetch_btn.setMinimumHeight(44)
+        self.fetch_btn.setMinimumWidth(120)
         self.fetch_btn.clicked.connect(self.fetch_metadata)
-        url_layout.addWidget(self.url_input)
-        url_layout.addWidget(self.fetch_btn)
-        header_layout.addLayout(url_layout)
+        url_row.addWidget(self.url_input, 1)
+        url_row.addWidget(self.fetch_btn)
+        url_layout.addLayout(url_row)
 
-        # Quality and Controls
-        ctrl_layout = QHBoxLayout()
+        hint_label = QLabel("Supports: youtube.com, youtu.be, shorts")
+        hint_label.setObjectName("SubtitleLabel")
+        url_layout.addWidget(hint_label)
+
+        left_column.addWidget(url_panel)
+
+        # --- Card 2: Video Info with Thumbnail ---
+        info_panel = QFrame()
+        info_panel.setObjectName("GlassPanel")
+        info_layout = QVBoxLayout(info_panel)
+        info_layout.setContentsMargins(20, 20, 20, 20)
+        info_layout.setSpacing(16)
+
+        # Thumbnail
+        self.thumbnail_label = QLabel()
+        self.thumbnail_label.setObjectName("ThumbnailLabel")
+        self.thumbnail_label.setFixedSize(320, 180)
+        self.thumbnail_label.setStyleSheet("""
+            QLabel#ThumbnailLabel {
+                background-color: #1a1a1a;
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.thumbnail_label.setAlignment(Qt.AlignCenter)
+        self.thumbnail_label.setText("🎬")
+        self.thumbnail_label.setScaledContents(False)
+        info_layout.addWidget(self.thumbnail_label, 0, Qt.AlignCenter)
+
+        # Video Title
+        self.video_title_label = QLabel("No video loaded")
+        self.video_title_label.setObjectName("VideoTitleLabel")
+        self.video_title_label.setWordWrap(True)
+        self.video_title_label.setAlignment(Qt.AlignCenter)
+        info_layout.addWidget(self.video_title_label)
+
+        # Video Info (channel, duration)
+        self.video_info_label = QLabel("Enter a URL and click Analyze")
+        self.video_info_label.setObjectName("VideoInfoLabel")
+        self.video_info_label.setAlignment(Qt.AlignCenter)
+        info_layout.addWidget(self.video_info_label)
+
+        # Quality Selector
+        quality_row = QHBoxLayout()
+        quality_label = QLabel("Quality:")
+        quality_label.setObjectName("SectionLabel")
         self.quality_combo = QComboBox()
-        self.quality_combo.setMinimumWidth(300)
-        self.quality_combo.addItem("Select Quality (Fetch first)")
-        
-        self.add_chapter_btn = QPushButton("+ Add Chapter")
+        self.quality_combo.setMinimumWidth(200)
+        self.quality_combo.addItem("Analyze video first...")
+        quality_row.addStretch()
+        quality_row.addWidget(quality_label)
+        quality_row.addWidget(self.quality_combo)
+        quality_row.addStretch()
+        info_layout.addLayout(quality_row)
+
+        left_column.addWidget(info_panel, 1)
+
+        columns_layout.addLayout(left_column, 1)
+
+        # ========== RIGHT COLUMN ==========
+        right_column = QVBoxLayout()
+        right_column.setSpacing(16)
+
+        # --- Card 3: Chapters ---
+        chapters_panel = QFrame()
+        chapters_panel.setObjectName("GlassPanel")
+        chapters_layout = QVBoxLayout(chapters_panel)
+        chapters_layout.setContentsMargins(20, 16, 20, 16)
+        chapters_layout.setSpacing(12)
+
+        # Section Header
+        section_header = QHBoxLayout()
+        chapters_title = QLabel("📋  Chapters")
+        chapters_title.setObjectName("VideoTitleLabel")
+        self.chapter_count_label = QLabel("0")
+        self.chapter_count_label.setObjectName("ChapterCountBadge")
+        section_header.addWidget(chapters_title)
+        section_header.addWidget(self.chapter_count_label)
+        section_header.addStretch()
+
+        self.add_chapter_btn = QPushButton("+ Add")
         self.add_chapter_btn.setObjectName("SecondaryBtn")
+        self.add_chapter_btn.setMinimumWidth(80)
         self.add_chapter_btn.clicked.connect(self.add_row)
-        
-        self.del_chapter_btn = QPushButton("- Delete Selected")
+
+        self.del_chapter_btn = QPushButton("− Remove")
         self.del_chapter_btn.setObjectName("SecondaryBtn")
+        self.del_chapter_btn.setMinimumWidth(100)
         self.del_chapter_btn.clicked.connect(self.delete_row)
 
-        ctrl_layout.addWidget(QLabel("Video Quality:"))
-        ctrl_layout.addWidget(self.quality_combo)
-        ctrl_layout.addStretch()
-        ctrl_layout.addWidget(self.add_chapter_btn)
-        ctrl_layout.addWidget(self.del_chapter_btn)
-        header_layout.addLayout(ctrl_layout)
-        
-        main_layout.addWidget(header_container)
+        section_header.addWidget(self.add_chapter_btn)
+        section_header.addWidget(self.del_chapter_btn)
+        chapters_layout.addLayout(section_header)
 
-        # Tables / Editor Container
-        editor_container = QFrame()
-        editor_container.setObjectName("MainContainer")
-        editor_layout = QVBoxLayout(editor_container)
-        
+        # Table
         self.chapter_table = QTableWidget(0, 3)
-        self.chapter_table.setHorizontalHeaderLabels(["Chapter Title", "Start Time (sec)", "End Time (sec)"])
-        self.chapter_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.chapter_table.setHorizontalHeaderLabels(["Chapter Title", "Start", "End"])
+        self.chapter_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.chapter_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.chapter_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.chapter_table.verticalHeader().setDefaultSectionSize(40)
         self.chapter_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        editor_layout.addWidget(self.chapter_table)
-        
-        main_layout.addWidget(editor_container)
+        self.chapter_table.setAlternatingRowColors(True)
+        self.chapter_table.verticalHeader().setVisible(False)
+        chapters_layout.addWidget(self.chapter_table)
 
-        # Execution Area
-        exec_container = QFrame()
-        exec_container.setObjectName("MainContainer")
-        exec_layout = QVBoxLayout(exec_container)
+        # Footer
+        footer_row = QHBoxLayout()
+        self.stats_label = QLabel("0 chapters")
+        self.stats_label.setObjectName("SubtitleLabel")
+        footer_row.addWidget(self.stats_label)
+        footer_row.addStretch()
+
+        self.start_btn = QPushButton("⬇  Start Splitting")
+        self.start_btn.setObjectName("DownloadBtn")
+        self.start_btn.setMinimumHeight(44)
+        self.start_btn.setMinimumWidth(160)
+        self.start_btn.setEnabled(False)
+        self.start_btn.clicked.connect(self.start_process)
+        footer_row.addWidget(self.start_btn)
+        chapters_layout.addLayout(footer_row)
+
+        right_column.addWidget(chapters_panel, 1)
+
+        # --- Card 4: Progress & Log ---
+        progress_panel = QFrame()
+        progress_panel.setObjectName("GlassPanel")
+        progress_layout = QVBoxLayout(progress_panel)
+        progress_layout.setContentsMargins(20, 16, 20, 16)
+        progress_layout.setSpacing(10)
+
+        progress_title = QLabel("📊  Progress")
+        progress_title.setObjectName("SectionLabel")
+        progress_layout.addWidget(progress_title)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        exec_layout.addWidget(self.progress_bar)
+        self.progress_bar.setTextVisible(False)
+        progress_layout.addWidget(self.progress_bar)
 
-        self.start_btn = QPushButton("START SPLITTING PROCESS")
-        self.start_btn.setStyleSheet("font-size: 16px; height: 50px; background-color: #00c853;")
-        self.start_btn.clicked.connect(self.start_process)
-        exec_layout.addWidget(self.start_btn)
-        
         self.log_area = QTextEdit()
         self.log_area.setObjectName("LogArea")
         self.log_area.setReadOnly(True)
-        self.log_area.setMaximumHeight(100)
-        exec_layout.addWidget(self.log_area)
+        self.log_area.setMaximumHeight(80)
+        self.log_area.setPlaceholderText("Activity log...")
+        progress_layout.addWidget(self.log_area)
 
-        main_layout.addWidget(exec_container)
+        right_column.addWidget(progress_panel)
+
+        columns_layout.addLayout(right_column, 1)
+
+        main_layout.addLayout(columns_layout, 1)
+
+    def load_thumbnail(self, url):
+        """Load thumbnail from URL and display it."""
+        try:
+            # Download the thumbnail
+            with urllib.request.urlopen(url, timeout=5) as response:
+                data = response.read()
+            
+            # Create pixmap from data
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            
+            # Scale to fit the label while maintaining aspect ratio
+            scaled = pixmap.scaled(320, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.thumbnail_label.setPixmap(scaled)
+        except Exception as e:
+            self.log(f"⚠️ Could not load thumbnail: {e}")
+            self.thumbnail_label.setText("🎬")
 
     def log(self, message):
         self.log_area.append(message)
         self.log_area.verticalScrollBar().setValue(self.log_area.verticalScrollBar().maximum())
 
     def fetch_metadata(self):
-        url = self.url_input.text().strip()
+        url = (self.url_input.text() or "").strip()
         if not url:
             self.log("❌ Enter a URL first")
             return
 
         self.fetch_btn.setEnabled(False)
-        self.log("📡 Fetching metadata...")
+        self.fetch_btn.setText("⏳ Analyzing...")
+        self.start_btn.setEnabled(False)
+        self.log("📡 Analyzing video...")
         
         self.metaworker = MetadataWorker(url)
         self.metaworker.finished.connect(self.on_metadata_fetched)
@@ -307,7 +653,25 @@ class AutoSplitApp(QMainWindow):
     def on_metadata_fetched(self, data):
         self.video_data = data
         self.fetch_btn.setEnabled(True)
-        self.log("✅ Metadata fetched successfully")
+        self.fetch_btn.setText("🔍  Analyze")
+        self.log("✅ Video analyzed successfully")
+
+        # Load Thumbnail
+        thumbnail_url = data.get('thumbnail', '')
+        if thumbnail_url:
+            self.load_thumbnail(thumbnail_url)
+
+        # Update Video Info Labels
+        title = data.get('title', 'Unknown Title')
+        duration = data.get('duration', 0)
+        duration_str = f"{int(duration // 60)}:{int(duration % 60):02d}"
+        channel = data.get('channel', data.get('uploader', 'Unknown'))
+        
+        self.video_title_label.setText(title[:60] + "..." if len(title) > 60 else title)
+        self.video_info_label.setText(f"👤 {channel}  •  🕐 {duration_str}")
+
+        # Enable Start Button
+        self.start_btn.setEnabled(True)
 
         # Update Qualities
         self.quality_combo.clear()
@@ -335,7 +699,6 @@ class AutoSplitApp(QMainWindow):
         # Update Chapters
         self.chapter_table.setRowCount(0)
         chapters = data.get('chapters', [])
-        duration = data.get('duration', 0)
 
         if chapters:
             for i, ch in enumerate(chapters):
@@ -343,8 +706,8 @@ class AutoSplitApp(QMainWindow):
                 end = chapters[i+1]['start_time'] if i+1 < len(chapters) else duration
                 self.add_row(ch['title'], start, end)
         else:
-            self.log("⚠️ No chapters found. Please add them manually.")
-            self.add_row("Intro", 0, duration)
+            self.log("⚠️ No chapters found. Full video will be processed.")
+            self.add_row("Full Video", 0, duration)
 
     def add_row(self, title="", start=0, end=0):
         row = self.chapter_table.rowCount()
@@ -352,19 +715,46 @@ class AutoSplitApp(QMainWindow):
         self.chapter_table.setItem(row, 0, QTableWidgetItem(str(title)))
         self.chapter_table.setItem(row, 1, QTableWidgetItem(str(start)))
         self.chapter_table.setItem(row, 2, QTableWidgetItem(str(end)))
+        self.update_table_stats()
 
     def delete_row(self):
         rows = self.chapter_table.selectionModel().selectedRows()
-        for row in reversed(rows):
-            self.chapter_table.removeRow(row.row())
+        if not rows:
+            # Fallback for when no rows are selected - remove last
+            self.chapter_table.removeRow(self.chapter_table.rowCount() - 1)
+        else:
+            for row in reversed(rows):
+                self.chapter_table.removeRow(row.row())
+        self.update_table_stats()
+
+    def update_table_stats(self):
+        count = self.chapter_table.rowCount()
+        self.chapter_count_label.setText(str(count))
+        
+        total_sec = 0
+        for row in range(count):
+            try:
+                start = float(self.chapter_table.item(row, 1).text())
+                end = float(self.chapter_table.item(row, 2).text())
+                total_sec += (end - start)
+            except:
+                pass
+        
+        mins = int(total_sec // 60)
+        secs = int(total_sec % 60)
+        dur_str = f"{mins}:{secs:02d}"
+        self.stats_label.setText(f"{count} {'chapter' if count == 1 else 'chapters'} • {dur_str} total")
 
     def on_error(self, msg):
         self.fetch_btn.setEnabled(True)
-        self.start_btn.setEnabled(True)
+        self.fetch_btn.setText("🔍  Analyze")
+        # Only enable start if we already have video data
+        if self.video_data:
+            self.start_btn.setEnabled(True)
         self.log(f"❌ Error: {msg}")
 
     def start_process(self):
-        url = self.url_input.text().strip()
+        url = (self.url_input.text() or "").strip()
         if not url:
             self.log("❌ Enter a URL first")
             return
@@ -395,12 +785,15 @@ class AutoSplitApp(QMainWindow):
         # Check if video already exists in current dir
         video_filename = None
         if self.video_data:
-            # We assume title-based naming for local search
+            # Look for a file that matches the exact title part (ignoring extensions)
             title_part = self.video_data.get('title', '')
-            for f in Path(".").iterdir():
-                if f.suffix.lower() in VIDEO_EXTS and title_part in f.name:
-                    video_filename = str(f)
-                    break
+            if title_part:
+                for f in Path(".").iterdir():
+                    if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
+                        # Exact match or title is contained in name
+                        if f.stem == title_part or title_part in f.name:
+                            video_filename = str(f)
+                            break
 
         self.worker = ProcessWorker(url, format_id, chapters, video_filename)
         self.worker.progress.connect(self.on_progress)
