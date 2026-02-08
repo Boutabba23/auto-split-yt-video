@@ -14,9 +14,29 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
 
+# --- Portable Path Handling ---
+def get_app_dir():
+    if getattr(sys, 'frozen', False):
+        # Running as a bundled executable
+        return os.path.dirname(sys.executable)
+    # Running as a script
+    return os.path.dirname(os.path.abspath(__file__))
+
+APP_DIR = get_app_dir()
+os.chdir(APP_DIR)  # Ensure CWD is always where the app/exe is
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 # --- Configuration ---
 VIDEO_EXTS = [".mp4", ".mkv", ".webm"]
-OUTPUT_DIR = "chapters"
+OUTPUT_DIR = os.path.join(APP_DIR, "chapters")
 
 # --- Styling (QSS) - YouTube ChapterSplit Theme ---
 STYLE_SHEET = """
@@ -325,44 +345,62 @@ class ProcessWorker(QThread):
         self.chapters = chapters
         self.video_filename = video_filename
 
+    def find_video_file(self, expected_name=None, title_hint=None):
+        """Ultra-robust fuzzy file discovery (Unicode-aware)."""
+        # 1. Try exact match first
+        if expected_name and Path(expected_name).exists():
+            return str(expected_name)
+        
+        # 2. Try alphanumeric/Unicode fuzzy match
+        # \w matches word characters including Unicode if supported by re.LOCALE or re.UNICODE (default in py3)
+        def clean_name(name):
+            if not name: return ""
+            # Strip symbols but KEEP letters (Unicode), numbers, and underscores
+            cleaned = re.sub(r'[^\w]', '', Path(name).stem).lower()
+            return cleaned
+
+        target_base = clean_name(expected_name)
+        hint_base = clean_name(title_hint) if title_hint else ""
+
+        # Scan folder for candidates
+        candidates = []
+        for f in Path(".").iterdir():
+            if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
+                f_clean = clean_name(f.name)
+                # Check against predicted name or title hint
+                if target_base and (target_base in f_clean or f_clean in target_base):
+                    candidates.append(f)
+                elif hint_base and (hint_base in f_clean or f_clean in hint_base):
+                    candidates.append(f)
+        
+        if candidates:
+            # Prefer the most recent file if multiple matches found
+            best_match = max(candidates, key=lambda x: x.stat().st_mtime)
+            return str(best_match)
+        
+        return None
+
     def run(self):
         try:
             Path(OUTPUT_DIR).mkdir(exist_ok=True)
-            
-            # 1. Download video if needed
-            video_file = self.video_filename
             
             # Helper to get the actual filename yt-dlp would/did use
             get_name_cmd = ["yt-dlp", "--get-filename", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
             name_result = subprocess.run(get_name_cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
             expected_video_file = (name_result.stdout or "").strip()
+            
+            # 1. Discover existing video
+            title_hint = self.video_filename if self.video_filename else None 
+            video_file = self.find_video_file(expected_video_file, title_hint=title_hint)
 
+            # 2. Download if not found
             if not video_file or not Path(video_file).exists():
-                if expected_video_file and Path(expected_video_file).exists():
-                     video_file = expected_video_file
-                else:
-                    self.progress.emit(10, "📥 Downloading video...")
-                    cmd = ["yt-dlp", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
-                    subprocess.run(cmd, check=True)
-                    
-                    # Fuzzy match after download or if expected name failed
-                    if not expected_video_file:
-                         # Try to get it again after download
-                         name_result = subprocess.run(get_name_cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
-                         expected_video_file = (name_result.stdout or "").strip()
-                    
-                    if expected_video_file and Path(expected_video_file).exists():
-                        video_file = expected_video_file
-                    else:
-                        # Strategy 2: Fuzzy match by cleaning predicted title
-                        # Remove problematic characters and spaces for a "base" match
-                        base_name = re.sub(r'[^a-zA-Z0-9]', '', expected_video_file.split('.')[0] if expected_video_file else "")
-                        for f in Path(".").iterdir():
-                            if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
-                                clean_f = re.sub(r'[^a-zA-Z0-9]', '', f.stem)
-                                if base_name and (base_name in clean_f or clean_f in base_name):
-                                    video_file = str(f)
-                                    break
+                self.progress.emit(10, "📥 Downloading video...")
+                cmd = ["yt-dlp", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
+                subprocess.run(cmd, check=True)
+                
+                # Search again after download
+                video_file = self.find_video_file(expected_video_file, title_hint=title_hint)
 
             if not video_file or not Path(video_file).exists():
                 self.error.emit(f"Video file not found: {expected_video_file or 'Unknown'}")
@@ -370,6 +408,7 @@ class ProcessWorker(QThread):
 
             video_path = Path(video_file)
             video_ext = video_path.suffix
+            self.progress.emit(15, f"✅ Using file: {video_path.name}")
 
             # 2. Split into chapters
             total = len(self.chapters)
@@ -400,7 +439,11 @@ class ProcessWorker(QThread):
 class AutoSplitApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Auto Split Video - Pro")
+        # Set Window Icon
+        icon_path = resource_path("split-tube-icon.PNG")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        self.setWindowTitle("ChapterSplit")
         self.resize(1000, 700)
         self.setStyleSheet(STYLE_SHEET)
         self.video_data = None
@@ -419,6 +462,14 @@ class AutoSplitApp(QMainWindow):
         header_bar.setFixedHeight(56)
         header_layout = QHBoxLayout(header_bar)
         header_layout.setContentsMargins(8, 0, 8, 0)
+
+        logo_label = QLabel()
+        icon_path = resource_path("split-tube-icon.PNG")
+        logo_pixmap = QPixmap(icon_path)
+        if not logo_pixmap.isNull():
+            logo_label.setPixmap(logo_pixmap.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            header_layout.addWidget(logo_label)
+            header_layout.addSpacing(4)
 
         title_label = QLabel("ChapterSplit")
         title_label.setObjectName("TitleLabel")
@@ -782,20 +833,10 @@ class AutoSplitApp(QMainWindow):
         self.start_btn.setEnabled(False)
         self.progress_bar.setValue(0)
         
-        # Check if video already exists in current dir
-        video_filename = None
-        if self.video_data:
-            # Look for a file that matches the exact title part (ignoring extensions)
-            title_part = self.video_data.get('title', '')
-            if title_part:
-                for f in Path(".").iterdir():
-                    if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
-                        # Exact match or title is contained in name
-                        if f.stem == title_part or title_part in f.name:
-                            video_filename = str(f)
-                            break
+        # Pass the title to the worker as a hint
+        title_hint = self.video_data.get('title', '') if self.video_data else None
 
-        self.worker = ProcessWorker(url, format_id, chapters, video_filename)
+        self.worker = ProcessWorker(url, format_id, chapters, title_hint)
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
