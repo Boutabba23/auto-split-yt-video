@@ -335,6 +335,7 @@ class MetadataWorker(QThread):
 
 class ProcessWorker(QThread):
     progress = Signal(int, str)
+    download_progress = Signal(str, str)  # (percent, eta)
     finished = Signal()
     error = Signal(str)
 
@@ -396,8 +397,27 @@ class ProcessWorker(QThread):
             # 2. Download if not found
             if not video_file or not Path(video_file).exists():
                 self.progress.emit(10, "📥 Downloading video...")
-                cmd = ["yt-dlp", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
-                subprocess.run(cmd, check=True)
+                
+                # Use Popen to capture real-time progress
+                cmd = ["yt-dlp", "--newline", "--progress", "-f", self.format_id, "-o", "%(title)s.%(ext)s", self.url]
+                # Regex for percentage and ETA: [download]  1.2% of 10.00MiB at  2.41MiB/s ETA 00:03
+                re_progress = re.compile(r"\[download\]\s+([\d\.]+)%\s+of\s+.*\s+at\s+.*\s+ETA\s+([\d:]+)")
+                
+                process = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                    text=True, encoding='utf-8', errors='replace', bufsize=1
+                )
+                
+                for line in process.stdout:
+                    match = re_progress.search(line)
+                    if match:
+                        percent = match.group(1)
+                        eta = match.group(2)
+                        self.download_progress.emit(f"{percent}%", f"Remaining: {eta}")
+                
+                process.wait()
+                if process.returncode != 0:
+                    raise Exception(f"yt-dlp download failed with code {process.returncode}")
                 
                 # Search again after download
                 video_file = self.find_video_file(expected_video_file, title_hint=title_hint)
@@ -645,6 +665,17 @@ class AutoSplitApp(QMainWindow):
         progress_title.setObjectName("SectionLabel")
         progress_layout.addWidget(progress_title)
 
+        # Progress Info (Percentage and ETA)
+        self.progress_info_layout = QHBoxLayout()
+        self.progress_percent_label = QLabel("")
+        self.progress_percent_label.setStyleSheet("color: #ff6b6b; font-weight: bold; font-size: 14px;")
+        self.progress_eta_label = QLabel("")
+        self.progress_eta_label.setStyleSheet("color: #9ca3af; font-size: 12px;")
+        self.progress_info_layout.addWidget(self.progress_percent_label)
+        self.progress_info_layout.addStretch()
+        self.progress_info_layout.addWidget(self.progress_eta_label)
+        progress_layout.addLayout(self.progress_info_layout)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
@@ -799,6 +830,8 @@ class AutoSplitApp(QMainWindow):
     def on_error(self, msg):
         self.fetch_btn.setEnabled(True)
         self.fetch_btn.setText("🔍  Analyze")
+        self.progress_percent_label.setText("")
+        self.progress_eta_label.setText("")
         # Only enable start if we already have video data
         if self.video_data:
             self.start_btn.setEnabled(True)
@@ -836,8 +869,9 @@ class AutoSplitApp(QMainWindow):
         # Pass the title to the worker as a hint
         title_hint = self.video_data.get('title', '') if self.video_data else None
 
-        self.worker = ProcessWorker(url, format_id, chapters, title_hint)
+        self.worker = ProcessWorker(self.url_input.text().strip(), self.quality_combo.currentData(), chapters, video_filename=title_hint)
         self.worker.progress.connect(self.on_progress)
+        self.worker.download_progress.connect(self.on_download_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
         self.worker.start()
@@ -845,11 +879,22 @@ class AutoSplitApp(QMainWindow):
     def on_progress(self, val, msg):
         self.progress_bar.setValue(val)
         self.log(msg)
+        # Clear download info if we moved past download
+        if val > 15:
+            self.progress_percent_label.setText("")
+            self.progress_eta_label.setText("")
+
+    def on_download_progress(self, percent, eta):
+        self.progress_percent_label.setText(percent)
+        self.progress_eta_label.setText(eta)
 
     def on_finished(self):
-        self.progress_bar.setValue(100)
         self.start_btn.setEnabled(True)
-        self.log("✨ ALL DONE! Chapters saved in 'chapters' folder.")
+        self.fetch_btn.setEnabled(True)
+        self.progress_bar.setValue(100)
+        self.progress_percent_label.setText("")
+        self.progress_eta_label.setText("")
+        self.log("✨ All processing complete!")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
