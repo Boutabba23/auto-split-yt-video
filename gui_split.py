@@ -34,6 +34,26 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+def format_seconds(secs):
+    """Convert seconds to HH:MM:SS format."""
+    hrs = int(secs // 3600)
+    mins = int((secs % 3600) // 60)
+    secs = int(secs % 60)
+    return f"{hrs:02d}:{mins:02d}:{secs:02d}"
+
+def parse_time(time_str):
+    """Convert HH:MM:SS or MM:SS or seconds string to float seconds."""
+    if not time_str: return 0.0
+    try:
+        parts = str(time_str).strip().split(':')
+        if len(parts) == 3:
+            return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+        elif len(parts) == 2:
+            return float(parts[0]) * 60 + float(parts[1])
+        return float(time_str)
+    except ValueError:
+        return 0.0
+
 # --- Configuration ---
 VIDEO_EXTS = [".mp4", ".mkv", ".webm"]
 OUTPUT_DIR = os.path.join(APP_DIR, "chapters")
@@ -746,7 +766,7 @@ class AutoSplitApp(QMainWindow):
         # Update Video Info Labels
         title = data.get('title', 'Unknown Title')
         duration = data.get('duration', 0)
-        duration_str = f"{int(duration // 60)}:{int(duration % 60):02d}"
+        duration_str = format_seconds(duration)
         channel = data.get('channel', data.get('uploader', 'Unknown'))
         
         self.video_title_label.setText(title[:60] + "..." if len(title) > 60 else title)
@@ -795,8 +815,8 @@ class AutoSplitApp(QMainWindow):
         row = self.chapter_table.rowCount()
         self.chapter_table.insertRow(row)
         self.chapter_table.setItem(row, 0, QTableWidgetItem(str(title)))
-        self.chapter_table.setItem(row, 1, QTableWidgetItem(str(start)))
-        self.chapter_table.setItem(row, 2, QTableWidgetItem(str(end)))
+        self.chapter_table.setItem(row, 1, QTableWidgetItem(format_seconds(float(start))))
+        self.chapter_table.setItem(row, 2, QTableWidgetItem(format_seconds(float(end))))
         self.update_table_stats()
 
     def delete_row(self):
@@ -816,15 +836,13 @@ class AutoSplitApp(QMainWindow):
         total_sec = 0
         for row in range(count):
             try:
-                start = float(self.chapter_table.item(row, 1).text())
-                end = float(self.chapter_table.item(row, 2).text())
+                start = parse_time(self.chapter_table.item(row, 1).text())
+                end = parse_time(self.chapter_table.item(row, 2).text())
                 total_sec += (end - start)
             except:
                 pass
         
-        mins = int(total_sec // 60)
-        secs = int(total_sec % 60)
-        dur_str = f"{mins}:{secs:02d}"
+        dur_str = format_seconds(total_sec)
         self.stats_label.setText(f"{count} {'chapter' if count == 1 else 'chapters'} • {dur_str} total")
 
     def on_error(self, msg):
@@ -851,8 +869,8 @@ class AutoSplitApp(QMainWindow):
         chapters = []
         for row in range(self.chapter_table.rowCount()):
             title = self.chapter_table.item(row, 0).text()
-            start = float(self.chapter_table.item(row, 1).text())
-            end = float(self.chapter_table.item(row, 2).text())
+            start = parse_time(self.chapter_table.item(row, 1).text())
+            end = parse_time(self.chapter_table.item(row, 2).text())
             chapters.append({
                 'title': title,
                 'start_time': start,
