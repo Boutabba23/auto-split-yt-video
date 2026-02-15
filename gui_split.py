@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem,
     QHeaderView, QComboBox, QProgressBar, QTextEdit, QFrame, QAbstractItemView,
-    QSizePolicy
+    QSizePolicy, QFileDialog
 )
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QFont, QIcon, QColor, QPalette, QPixmap
@@ -635,12 +635,18 @@ class AutoSplitApp(QMainWindow):
         self.add_chapter_btn.setMinimumWidth(80)
         self.add_chapter_btn.clicked.connect(self.add_row)
 
+        self.import_txt_btn = QPushButton("📄 Import .txt")
+        self.import_txt_btn.setObjectName("SecondaryBtn")
+        self.import_txt_btn.setMinimumWidth(100)
+        self.import_txt_btn.clicked.connect(self.import_chapters_from_file)
+
         self.del_chapter_btn = QPushButton("− Remove")
         self.del_chapter_btn.setObjectName("SecondaryBtn")
         self.del_chapter_btn.setMinimumWidth(100)
         self.del_chapter_btn.clicked.connect(self.delete_row)
 
         section_header.addWidget(self.add_chapter_btn)
+        section_header.addWidget(self.import_txt_btn)
         section_header.addWidget(self.del_chapter_btn)
         chapters_layout.addLayout(section_header)
 
@@ -828,6 +834,53 @@ class AutoSplitApp(QMainWindow):
             for row in reversed(rows):
                 self.chapter_table.removeRow(row.row())
         self.update_table_stats()
+
+    def import_chapters_from_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Chapters Text File", "", "Text Files (*.txt);;All Files (*)")
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.readlines()
+
+            chapters = []
+            # Regex for "HH:MM:SS Title" or "MM:SS Title" or "S+ Title"
+            re_line = re.compile(r"^(\d{1,2}:?\d{0,2}:?\d{0,2})\s+(.*)$")
+            
+            for line in lines:
+                line = line.strip()
+                if not line: continue
+                match = re_line.match(line)
+                if match:
+                    timestamp_str = match.group(1)
+                    title = match.group(2)
+                    chapters.append({
+                        'start_time': parse_time(timestamp_str),
+                        'title': title
+                    })
+
+            if not chapters:
+                self.log("⚠️ No valid chapters found in file.")
+                return
+
+            # Clear and populate
+            self.chapter_table.setRowCount(0)
+            duration = self.video_data.get('duration', 0) if self.video_data else 0
+
+            for i, ch in enumerate(chapters):
+                start = ch['start_time']
+                # End is the start of next chapter, or video duration if it's the last one
+                if i + 1 < len(chapters):
+                    end = chapters[i+1]['start_time']
+                else:
+                    end = duration if duration > start else start + 60 # Default +1min if no video loaded
+                
+                self.add_row(ch['title'], start, end)
+
+            self.log(f"✅ Imported {len(chapters)} chapters from file.")
+        except Exception as e:
+            self.log(f"❌ Error importing chapters: {e}")
 
     def update_table_stats(self):
         count = self.chapter_table.rowCount()

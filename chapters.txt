@@ -1,0 +1,30 @@
+0:00:00 Introduction
+0:03:14 Technical interviews 101
+0:07:02 How to judge an algorithm
+0:08:02 What is time complexity
+0:18:42 What is Big O
+0:20:20 Big O for code blocks
+0:33:08 Space complexity example
+0:35:04 How do you get good at solving DSA problems
+0:37:34 Types of data structures
+0:48:48 Quick recap
+0:50:21 Arrays Full Course
+3:29:02 Sliding Window Full Course
+5:09:48 Two Pointers Full Course
+7:00:25 Strings Full Course
+8:29:27 Sorting & Searching Full Course
+11:28:48 Linked List Full Course
+14:08:48 Stack Full Course
+16:43:55 Queue Full Course
+17:58:08 Priority Queue Full Course
+20:55:54 Trees Full Course
+25:20:01 Graph Full Course
+32:14:13 Dynamic Programming Full Course
+37:13:04 Greedy Full Course
+39:06:36 Interval Full Course
+40:32:39 Backtracking Full Course
+42:45:51 Math & Geometry Full Course
+43:42:30 Matrix Full Course
+45:55:06 Design Full Course
+47:22:33 Bit Manipulation Full Course
+48:48:17 Final message
